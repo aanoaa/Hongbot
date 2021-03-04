@@ -2,12 +2,10 @@ package server
 
 // Interface Chat Server
 type Interface interface {
-	Connect(params ConnectParams, onConnect func(ch <-chan byte))
-	Close(onClose func(ch <-chan byte))
+	Connect(params ConnectParams, onConnect func())
+	Close(onClose func())
 	Send(nick string, msg string)
 
-	OnConnect(ch <-chan byte)
-	OnClose(ch <-chan byte)
 	OnMessage(ch chan<- string)
 }
 

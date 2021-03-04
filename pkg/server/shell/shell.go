@@ -3,7 +3,6 @@ package shell
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -16,19 +15,9 @@ type Shell struct {
 }
 
 // Connect to shell
-func (s *Shell) Connect(params server.ConnectParams, onConnect func(ch <-chan byte)) {
-	ch := make(chan byte)
-	defer close(ch)
-	go onConnect(ch)
-	ch <- 1
-}
-
-// OnConnect connection accepted
-func (s *Shell) OnConnect(ch <-chan byte) {
-	<-ch
+func (s *Shell) Connect(params server.ConnectParams, onConnect func()) {
 	s.connected = true
-	log.Println("Connection accepted")
-	log.Println("<Ctrl + c> to quit")
+	onConnect()
 }
 
 // OnMessage receive a message
@@ -44,17 +33,9 @@ func (s *Shell) OnMessage(ch chan<- string) {
 }
 
 // Close shell
-func (s *Shell) Close(onClose func(ch <-chan byte)) {
-	ch := make(chan byte)
-	defer close(ch)
-	go onClose(ch)
-	ch <- 1
-}
-
-func (s *Shell) OnClose(ch <-chan byte) {
-	<-ch
+func (s *Shell) Close(onClose func()) {
 	s.connected = false
-	log.Println("Connection closed")
+	onClose()
 }
 
 // Send message
