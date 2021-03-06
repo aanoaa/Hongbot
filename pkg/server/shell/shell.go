@@ -28,7 +28,7 @@ func (s *Shell) OnMessage(ch chan<- string) {
 			fmt.Printf("you> ")
 		})
 		input, _ := reader.ReadString('\n')
-		ch <- fmt.Sprintf("you>%s", input)
+		ch <- fmt.Sprintf("#shell@you>%s", input)
 	}
 }
 
@@ -39,6 +39,6 @@ func (s *Shell) Close(onClose func()) {
 }
 
 // Send message
-func (s *Shell) Send(nick string, msg string) {
+func (s *Shell) Send(channel, nick, msg string) {
 	fmt.Printf("%s> %s\n", nick, msg)
 }

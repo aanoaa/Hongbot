@@ -15,11 +15,11 @@ type Interface interface {
 	Listen()
 	Shutdown()
 
-	Send(msg string)
-	Reply(nick string, msg string)
+	Send(channel, msg string)
+	Reply(channel, nick, msg string)
 
-	Hear(pattern string, cb func(msg string))
-	Respond(pattern string, cb func(nick string, msg string))
+	Hear(pattern string, cb func(channel, nick, msg string))
+	Respond(pattern string, cb func(channel, nick, msg string))
 
 	OnConnect()
 	OnClose(ch <-chan byte)
@@ -29,23 +29,25 @@ type Interface interface {
 type Bot struct {
 	Name   string
 	Server server.Interface
+	server.ConnectParams
 
-	Reaction map[*regexp.Regexp]func(msg string)
-	Response map[*regexp.Regexp]func(nick string, msg string)
+	Reaction map[*regexp.Regexp]func(channel, nick, msg string)
+	Response map[*regexp.Regexp]func(channel, nick, msg string)
 }
 
 // NewBot create bot instance
-func NewBot(name string, server server.Interface) *Bot {
+func NewBot(params server.ConnectParams, server server.Interface) *Bot {
 	bot := &Bot{
-		Name:     name,
-		Server:   server,
-		Reaction: make(map[*regexp.Regexp]func(string)),
-		Response: make(map[*regexp.Regexp]func(string, string)),
+		Name:          params.Name,
+		Server:        server,
+		ConnectParams: params,
+		Reaction:      make(map[*regexp.Regexp]func(channel, nick, msg string)),
+		Response:      make(map[*regexp.Regexp]func(channel, nick, msg string)),
 	}
-	bot.Hear("ping", func(msg string) { bot.Send("pong") })
-	bot.Respond("ping", func(nick string, msg string) { bot.Reply(nick, "pong") })
-	bot.Respond("shutdown", func(nick string, msg string) {
-		bot.Send("Goodbye cruel world")
+	bot.Hear("ping", func(channel, nick, msg string) { bot.Send(channel, "pong") })
+	bot.Respond("ping", func(channel, nick, msg string) { bot.Reply(channel, nick, "pong") })
+	bot.Respond("shutdown", func(channel, nick, msg string) {
+		bot.Send(channel, "Goodbye cruel world")
 		bot.Shutdown()
 	})
 	return bot
@@ -53,41 +55,8 @@ func NewBot(name string, server server.Interface) *Bot {
 
 // Run connect to server and listen
 func (b *Bot) Run() {
-	params := server.ConnectParams{Name: b.Name}
-	b.Server.Connect(params, b.OnConnect)
-
-	ch := make(chan string)
-	go func() {
-		defer close(ch)
-		b.Server.OnMessage(ch)
-	}()
-
-	called, _ := regexp.Compile(fmt.Sprintf(`^%s:`, b.Name))
-	for msg := range ch {
-		msg = strings.Trim(msg, "\n")
-		nick := ""
-		for i, c := range msg {
-			if c == '>' {
-				nick = msg[:i]
-				msg = msg[i+1:]
-				break
-			}
-		}
-
-		if called.MatchString(msg) {
-			for pattern := range b.Response {
-				if pattern.MatchString(msg) {
-					b.Response[pattern](nick, msg)
-				}
-			}
-		} else {
-			for pattern := range b.Reaction {
-				if pattern.MatchString(msg) {
-					b.Reaction[pattern](msg)
-				}
-			}
-		}
-	}
+	b.Server.Connect(b.ConnectParams, b.OnConnect)
+	b.Listen()
 }
 
 // Shutdown power off
@@ -96,25 +65,25 @@ func (b *Bot) Shutdown() {
 }
 
 // Send message
-func (b *Bot) Send(msg string) {
-	b.Server.Send(b.Name, msg)
+func (b *Bot) Send(channel, msg string) {
+	b.Server.Send(channel, b.Name, msg)
 }
 
 // Reply message
-func (b *Bot) Reply(nick string, msg string) {
-	b.Server.Send(b.Name, fmt.Sprintf("%s: %s", nick, msg))
+func (b *Bot) Reply(channel, nick, msg string) {
+	b.Send(channel, fmt.Sprintf("%s: %s", nick, msg))
 }
 
 // Hear pattern and reaction if matched
 // foo> ping
-func (b *Bot) Hear(pattern string, cb func(msg string)) {
+func (b *Bot) Hear(pattern string, cb func(channel, nick, msg string)) {
 	compiled, _ := regexp.Compile(pattern)
 	b.Reaction[compiled] = cb
 }
 
 // Respond pattern and response if matched
 // foo> bot: ping
-func (b *Bot) Respond(pattern string, cb func(nick string, msg string)) {
+func (b *Bot) Respond(pattern string, cb func(channel, nick, msg string)) {
 	compiled, _ := regexp.Compile(pattern)
 	b.Response[compiled] = cb
 }
@@ -123,7 +92,6 @@ func (b *Bot) Respond(pattern string, cb func(nick string, msg string)) {
 func (b *Bot) OnConnect() {
 	log.Println("Connection accepted")
 	log.Println("<Ctrl + c> to quit")
-	b.Listen()
 }
 
 // OnClose
@@ -140,27 +108,34 @@ func (b *Bot) Listen() {
 	}()
 
 	called, _ := regexp.Compile(fmt.Sprintf(`^%s:`, b.Name))
-	for msg := range ch {
-		msg = strings.Trim(msg, "\n")
-		nick := ""
-		for i, c := range msg {
-			if c == '>' {
-				nick = msg[:i]
-				msg = msg[i+1:]
+	for line := range ch {
+		// #channel@nick>message
+		line = strings.Trim(line, "\n")
+		var channel, nick, message string
+		nickIdx := 0
+		for i, c := range line {
+			switch c {
+			case '@':
+				channel = line[:i]
+				nickIdx = i
+			case '>':
+				nick = line[nickIdx+1 : i]
+				message = line[i+1:]
 				break
+			default:
 			}
 		}
 
-		if called.MatchString(msg) {
+		if called.MatchString(message) {
 			for pattern := range b.Response {
-				if pattern.MatchString(msg) {
-					b.Response[pattern](nick, msg)
+				if pattern.MatchString(message) {
+					b.Response[pattern](channel, nick, message)
 				}
 			}
 		} else {
 			for pattern := range b.Reaction {
-				if pattern.MatchString(msg) {
-					b.Reaction[pattern](msg)
+				if pattern.MatchString(message) {
+					b.Reaction[pattern](channel, nick, message)
 				}
 			}
 		}
